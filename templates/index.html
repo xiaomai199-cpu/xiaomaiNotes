@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>科研笔记</title>
+  <link rel="stylesheet" href="{{.BasePath}}/static/style.css?v={{.Version}}">
+  <script>window.APP_BASE_PATH = "{{.BasePath}}";</script>
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [["$", "$"], ["\\(", "\\)"]],
+        displayMath: [["$$", "$$"], ["\\[", "\\]"]]
+      },
+      svg: { fontCache: "global" }
+    };
+  </script>
+  <script id="mathjax-script" defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>科研笔记</h1>
+      <span>Markdown 文档保存在分类目录的 notes 中，图片保存在 img 中。</span>
+    </div>
+    <nav>
+      <button id="exportBtn" title="导出当前笔记">导出</button>
+      <button id="backupBtn" title="备份全部分类和笔记">备份</button>
+      <a href="{{.BasePath}}/logout">退出</a>
+      <a class="home-link" href="https://www.nuli199.com" target="_blank" title="返回 nuli199.com">🏃🌾</a>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <section class="editor-pane">
+      <div class="meta-row">
+        <label>分类
+          <select id="categorySelect"></select>
+        </label>
+        <button id="addCategoryBtn" class="icon-btn" title="新建分类">+</button>
+        <label>文件名
+          <input id="noteName" placeholder="example.md">
+        </label>
+        <label>移动到
+          <select id="moveSelect"></select>
+        </label>
+        <button id="moveBtn" title="移动 Markdown 和相关图片">移动</button>
+      </div>
+      <div class="editor-tools">
+        <div class="tool-group">
+          <button id="insertImageBtn" title="从所有 img 文件夹选择图片插入">插入图片</button>
+          <button id="embedHtmlBtn" title="嵌入 HTML 代码">嵌入 HTML</button>
+          <button id="embedVideoBtn" title="嵌入网络视频">嵌入视频</button>
+        </div>
+        <div class="tool-group tool-group-primary">
+          <button id="newNoteBtn" title="新建笔记">新建</button>
+          <button id="saveBtn" title="保存 Markdown">保存</button>
+          <button id="importBtn" title="导入 Markdown 或导出包">导入</button>
+        </div>
+      </div>
+      <div class="view-toggle" role="group" aria-label="视图切换">
+        <span class="view-toggle__label">显示模式</span>
+        <button type="button" class="view-toggle__btn is-active" data-view-mode="split" title="同时显示源码和预览">分屏</button>
+        <button type="button" class="view-toggle__btn" data-view-mode="source" title="只显示 Markdown 源码">仅源码</button>
+        <button type="button" class="view-toggle__btn" data-view-mode="preview" title="在编辑器区域内只显示渲染预览">仅预览</button>
+        <button type="button" class="view-toggle__btn" data-view-mode="fullscreen" title="全屏显示，隐藏除编辑区外的所有元素">全屏显示</button>
+        <button type="button" class="view-toggle__btn view-toggle__btn--escape" data-view-mode="exit-fullscreen" title="退出全屏显示">退出全屏</button>
+      </div>
+      <div class="split">
+        <textarea id="editor" spellcheck="false" placeholder="在这里输入 Markdown。可以直接粘贴图片，系统会保存到当前分类的 img 文件夹，并插入相对路径。"></textarea>
+        <article id="preview" class="preview"></article>
+      </div>
+      <div id="status" class="status">就绪</div>
+    </section>
+
+    <aside class="tree-pane">
+      <div class="tree-head">
+        <strong>文档目录</strong>
+        <button id="refreshBtn" title="刷新目录">刷新</button>
+      </div>
+      <div id="tree" class="tree"></div>
+    </aside>
+  </main>
+
+  <input id="importFile" type="file" accept=".md,.markdown,.zip" hidden>
+  <div id="imageModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <strong>选择图片</strong>
+        <button id="closeImageModal" title="关闭">关闭</button>
+      </div>
+      <div id="imageGrid" class="image-grid"></div>
+    </div>
+  </div>
+  <div id="contextMenu" class="context-menu" hidden>
+    <button id="newFromFolderItem">新建文档</button>
+    <button id="restoreNoteItem">恢复</button>
+    <button id="renameNoteItem">重命名</button>
+    <button id="deleteNoteItem">删除文档</button>
+    <button id="renameCategoryItem">重命名分类</button>
+    <button id="moveCategoryUpItem">上移分类</button>
+    <button id="moveCategoryDownItem">下移分类</button>
+    <button id="deleteCategoryItem">删除分类</button>
+  </div>
+  <div id="imageHoverPreview" class="image-hover-preview" hidden></div>
+  <script src="{{.BasePath}}/static/app.js?v={{.Version}}"></script>
+</body>
+</html>

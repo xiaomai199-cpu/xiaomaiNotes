@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>科研笔记登录</title>
+  <link rel="stylesheet" href="{{.BasePath}}/static/style.css?v={{.Version}}">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <h1>科研笔记</h1>
+    <p>登录后管理 Markdown 笔记、图片和分类。</p>
+    {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+    <form method="post" action="{{.BasePath}}/login">
+      <label>用户名<input name="username" autocomplete="username" required autofocus></label>
+      <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit">登录</button>
+    </form>
+    <a class="home-link" href="https://www.nuli199.com" target="_blank" title="返回 nuli199.com">🏃 🌾 nuli199.com</a>
+  </main>
+</body>
+</html>
