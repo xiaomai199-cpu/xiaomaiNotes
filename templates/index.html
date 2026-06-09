@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>科研笔记</title>
   <link rel="stylesheet" href="{{.BasePath}}/static/style.css?v={{.Version}}">
-  <script>window.APP_BASE_PATH = "{{.BasePath}}";</script>
+  <script>window.APP_BASE_PATH = "{{.BasePath}}"; window.APP_IS_ADMIN = {{.IsAdmin}};</script>
   <script>
     window.MathJax = {
       tex: {
@@ -26,8 +26,10 @@
     <nav>
       <button id="exportBtn" title="导出当前笔记">导出</button>
       <button id="backupBtn" title="备份全部分类和笔记">备份</button>
+      <span class="nav-user">{{.Username}}</span>
+      <button id="changePasswordBtn" title="修改密码">改密码</button>
+      {{if .IsAdmin}}<a href="{{.BasePath}}/admin" title="用户管理">用户管理</a>{{end}}
       <a href="{{.BasePath}}/logout">退出</a>
-      <a class="home-link" href="https://www.nuli199.com" target="_blank" title="返回 nuli199.com">🏃🌾</a>
     </nav>
   </header>
 
@@ -82,6 +84,23 @@
     </aside>
   </main>
 
+  <!-- 修改密码对话框 -->
+  <div id="changePasswordModal" class="modal" hidden>
+    <div class="modal-card" style="max-width:360px">
+      <div class="modal-head">
+        <strong>修改密码</strong>
+        <button id="closeChangePasswordModal">关闭</button>
+      </div>
+      <div style="padding:1rem;display:flex;flex-direction:column;gap:.75rem">
+        <label>当前密码<input id="cpOldPass" type="password" autocomplete="current-password"></label>
+        <label>新密码<input id="cpNewPass" type="password" autocomplete="new-password"></label>
+        <label>确认新密码<input id="cpConfirmPass" type="password" autocomplete="new-password"></label>
+        <div id="cpError" style="color:var(--red,#c00);font-size:.85rem;min-height:1.2em"></div>
+        <button id="cpSubmitBtn">确认修改</button>
+      </div>
+    </div>
+  </div>
+
   <input id="importFile" type="file" accept=".md,.markdown,.zip" hidden>
   <div id="imageModal" class="modal" hidden>
     <div class="modal-card">
@@ -104,5 +123,39 @@
   </div>
   <div id="imageHoverPreview" class="image-hover-preview" hidden></div>
   <script src="{{.BasePath}}/static/app.js?v={{.Version}}"></script>
+  <script>
+  (function(){
+    const modal = document.getElementById('changePasswordModal');
+    document.getElementById('changePasswordBtn').onclick = () => {
+      modal.hidden = false;
+      document.getElementById('cpOldPass').value = '';
+      document.getElementById('cpNewPass').value = '';
+      document.getElementById('cpConfirmPass').value = '';
+      document.getElementById('cpError').textContent = '';
+    };
+    document.getElementById('closeChangePasswordModal').onclick = () => { modal.hidden = true; };
+    document.getElementById('cpSubmitBtn').onclick = async () => {
+      const oldPass = document.getElementById('cpOldPass').value;
+      const newPass = document.getElementById('cpNewPass').value;
+      const confirm = document.getElementById('cpConfirmPass').value;
+      const errEl = document.getElementById('cpError');
+      errEl.textContent = '';
+      if (!oldPass || !newPass) { errEl.textContent = '请填写所有密码字段'; return; }
+      if (newPass !== confirm) { errEl.textContent = '两次输入的新密码不一致'; return; }
+      const res = await fetch(window.APP_BASE_PATH + '/api/user/password', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({oldPassword: oldPass, newPassword: newPass})
+      });
+      if (res.ok) {
+        modal.hidden = true;
+        alert('密码修改成功');
+      } else {
+        const text = await res.text();
+        errEl.textContent = text || '修改失败';
+      }
+    };
+  })();
+  </script>
 </body>
 </html>

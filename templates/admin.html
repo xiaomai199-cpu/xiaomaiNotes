@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>用户管理 — 科研笔记</title>
+  <link rel="stylesheet" href="{{.BasePath}}/static/style.css?v={{.Version}}">
+  <style>
+    .admin-wrap { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    .admin-wrap h2 { margin-top: 2rem; margin-bottom: .75rem; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--border, #ddd); }
+    th { font-weight: 600; }
+    .badge { font-size: .75rem; background: var(--accent, #3b82f6); color: #fff;
+             border-radius: 999px; padding: 1px 8px; }
+    .form-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: .5rem; }
+    .form-row label { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; }
+    .form-row input { padding: .35rem .6rem; border: 1px solid var(--border, #ccc); border-radius: 4px; }
+    .err { color: var(--red, #c00); font-size: .85rem; min-height: 1.2em; margin-top: .25rem; }
+    .action-btn { font-size: .8rem; padding: .2rem .6rem; }
+    .reset-form { display: flex; gap: .4rem; }
+    .reset-form input { padding: .25rem .5rem; width: 130px; border: 1px solid var(--border,#ccc); border-radius:4px; font-size:.85rem; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div><h1>用户管理</h1></div>
+    <nav>
+      <a href="{{.BasePath}}/">返回笔记</a>
+      <a href="{{.BasePath}}/logout">退出</a>
+    </nav>
+  </header>
+
+  <div class="admin-wrap">
+    <h2>当前用户列表</h2>
+    <table id="userTable">
+      <thead><tr><th>用户名</th><th>角色</th><th>重置密码</th><th>操作</th></tr></thead>
+      <tbody>
+        {{range .Users}}
+        <tr id="row-{{.Username}}">
+          <td>{{.Username}}</td>
+          <td>{{if .IsAdmin}}<span class="badge">管理员</span>{{else}}普通用户{{end}}</td>
+          <td>
+            <div class="reset-form">
+              <input type="password" placeholder="新密码" id="rp-{{.Username}}">
+              <button class="action-btn" onclick="resetPassword('{{.Username}}')">重置</button>
+            </div>
+          </td>
+          <td>
+            {{if not_self $.Username .Username}}
+            <button class="action-btn" onclick="deleteUser('{{.Username}}')">删除</button>
+            {{else}}
+            <span style="color:#999;font-size:.8rem">（当前用户）</span>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    <div id="tableErr" class="err"></div>
+
+    <h2>新建用户</h2>
+    <div class="form-row">
+      <label>用户名<input id="newUsername" placeholder="username"></label>
+      <label>密码<input id="newPassword" type="password" placeholder="密码"></label>
+      <label style="flex-direction:row;align-items:center;gap:.4rem;padding-top:1.4rem">
+        <input id="newIsAdmin" type="checkbox"> 管理员
+      </label>
+      <button style="align-self:flex-end" onclick="createUser()">创建</button>
+    </div>
+    <div id="createErr" class="err"></div>
+  </div>
+
+  <script>
+  const BASE = "{{.BasePath}}";
+
+  async function deleteUser(username) {
+    if (!confirm('确认删除用户 ' + username + '？其数据不会被删除。')) return;
+    const res = await fetch(BASE + '/api/admin/users/delete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username})
+    });
+    if (res.ok) {
+      document.getElementById('row-' + username)?.remove();
+      document.getElementById('tableErr').textContent = '';
+    } else {
+      document.getElementById('tableErr').textContent = await res.text();
+    }
+  }
+
+  async function resetPassword(username) {
+    const input = document.getElementById('rp-' + username);
+    const pwd = input.value.trim();
+    if (!pwd) { document.getElementById('tableErr').textContent = '请输入新密码'; return; }
+    const res = await fetch(BASE + '/api/admin/users/reset-password', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, newPassword: pwd})
+    });
+    if (res.ok) {
+      input.value = '';
+      document.getElementById('tableErr').textContent = '';
+      alert(username + ' 密码已重置');
+    } else {
+      document.getElementById('tableErr').textContent = await res.text();
+    }
+  }
+
+  async function createUser() {
+    const username = document.getElementById('newUsername').value.trim();
+    const password = document.getElementById('newPassword').value;
+    const isAdmin  = document.getElementById('newIsAdmin').checked;
+    const errEl    = document.getElementById('createErr');
+    errEl.textContent = '';
+    if (!username || !password) { errEl.textContent = '用户名和密码不能为空'; return; }
+    const res = await fetch(BASE + '/api/admin/users/create', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password, isAdmin})
+    });
+    if (res.ok) {
+      document.getElementById('newUsername').value = '';
+      document.getElementById('newPassword').value = '';
+      document.getElementById('newIsAdmin').checked = false;
+      alert('用户 ' + username + ' 创建成功，刷新页面查看列表');
+    } else {
+      errEl.textContent = await res.text();
+    }
+  }
+  </script>
+</body>
+</html>
