@@ -27,6 +27,11 @@ const el = {
   importFile: document.querySelector("#importFile"),
   imageModal: document.querySelector("#imageModal"),
   imageGrid: document.querySelector("#imageGrid"),
+  imageManagerModal: document.querySelector("#imageManagerModal"),
+  imageManagerGrid: document.querySelector("#imageManagerGrid"),
+  imSelectAll: document.querySelector("#imSelectAll"),
+  imSelectedCount: document.querySelector("#imSelectedCount"),
+  imDeleteSelected: document.querySelector("#imDeleteSelected"),
   contextMenu: document.querySelector("#contextMenu"),
   imageHoverPreview: document.querySelector("#imageHoverPreview"),
   viewToggle: document.querySelector(".view-toggle"),
@@ -44,6 +49,11 @@ document.querySelector("#importBtn").addEventListener("click", () => el.importFi
 document.querySelector("#exportBtn").addEventListener("click", exportCurrent);
 document.querySelector("#backupBtn").addEventListener("click", backupAll);
 document.querySelector("#insertImageBtn").addEventListener("click", openImagePicker);
+document.querySelector("#imageManagerBtn").addEventListener("click", openImageManager);
+document.querySelector("#closeImageManagerModal").addEventListener("click", closeImageManager);
+document.querySelector("#deleteImageItem").addEventListener("click", deleteContextImage);
+el.imSelectAll.addEventListener("change", toggleSelectAllImages);
+el.imDeleteSelected.addEventListener("click", deleteSelectedImages);
 document.querySelector("#embedHtmlBtn").addEventListener("click", embedHTML);
 document.querySelector("#embedVideoBtn").addEventListener("click", embedVideo);
 document.querySelector("#closeImageModal").addEventListener("click", closeImagePicker);
@@ -256,6 +266,10 @@ function renderTree() {
           btn.addEventListener("click", async event => {
             event.stopPropagation();
             await insertExistingImage(image);
+          });
+          btn.addEventListener("contextmenu", event => {
+            event.preventDefault();
+            showImageContextMenu(event, image.category, image.name);
           });
           list.appendChild(btn);
         }
@@ -629,6 +643,137 @@ function closeImagePicker() {
   hideImageHover();
 }
 
+let imageManagerImages = [];
+const imageSelection = new Set();
+
+function imageKey(image) {
+  return `${image.category}/${image.name}`;
+}
+
+function splitImageKey(key) {
+  const idx = key.indexOf("/");
+  return { category: key.slice(0, idx), name: key.slice(idx + 1) };
+}
+
+async function openImageManager() {
+  el.imageManagerModal.hidden = false;
+  imageSelection.clear();
+  await renderImageManager();
+}
+
+function closeImageManager() {
+  el.imageManagerModal.hidden = true;
+  hideImageHover();
+}
+
+async function renderImageManager() {
+  imageManagerImages = await api("/api/images");
+  // 清理选中集合中已不存在的图片
+  const validKeys = new Set(imageManagerImages.map(imageKey));
+  for (const key of [...imageSelection]) {
+    if (!validKeys.has(key)) imageSelection.delete(key);
+  }
+  el.imageManagerGrid.innerHTML = "";
+  if (!imageManagerImages.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "所有分类的 img 文件夹中暂无图片";
+    el.imageManagerGrid.appendChild(empty);
+    updateImageManagerToolbar();
+    return;
+  }
+  for (const image of imageManagerImages) {
+    const key = imageKey(image);
+    const card = document.createElement("div");
+    card.className = "image-card image-manage-card";
+    if (imageSelection.has(key)) card.classList.add("is-selected");
+    card.innerHTML = `
+      <input type="checkbox" class="im-card-check" ${imageSelection.has(key) ? "checked" : ""} aria-label="选择 ${escapeAttr(image.name)}">
+      <img src="${escapeAttr(image.url)}" alt="${escapeAttr(image.name)}">
+      <span>${escapeHTML(image.category)}</span>
+      <strong title="${escapeAttr(image.name)}">${escapeHTML(image.name)}</strong>
+      <small>${formatBytes(image.size)}</small>
+      <button type="button" class="image-delete-btn">删除</button>
+    `;
+    attachImageHover(card.querySelector("img"), image);
+    const check = card.querySelector(".im-card-check");
+    check.addEventListener("click", event => event.stopPropagation());
+    check.addEventListener("change", () => {
+      if (check.checked) imageSelection.add(key);
+      else imageSelection.delete(key);
+      card.classList.toggle("is-selected", check.checked);
+      updateImageManagerToolbar();
+    });
+    card.querySelector(".image-delete-btn").addEventListener("click", async () => {
+      if (!confirm(`确定删除图片「${image.category}/${image.name}」吗？\n此操作不可恢复，引用它的文档会显示坏图。`)) return;
+      await api("/api/image-delete", {
+        method: "POST",
+        body: JSON.stringify({ category: image.category, name: image.name })
+      });
+      imageSelection.delete(key);
+      setStatus(`已删除图片：${image.category}/${image.name}`);
+      await loadTree();
+      await renderImageManager();
+    });
+    el.imageManagerGrid.appendChild(card);
+  }
+  updateImageManagerToolbar();
+}
+
+function updateImageManagerToolbar() {
+  const total = imageManagerImages.length;
+  const selected = imageSelection.size;
+  el.imSelectedCount.textContent = `已选 ${selected} / ${total} 张`;
+  el.imDeleteSelected.disabled = selected === 0;
+  el.imSelectAll.checked = total > 0 && selected === total;
+  el.imSelectAll.indeterminate = selected > 0 && selected < total;
+}
+
+function toggleSelectAllImages() {
+  if (el.imSelectAll.checked) {
+    for (const image of imageManagerImages) imageSelection.add(imageKey(image));
+  } else {
+    imageSelection.clear();
+  }
+  for (const card of el.imageManagerGrid.querySelectorAll(".image-manage-card")) {
+    const check = card.querySelector(".im-card-check");
+    if (check) {
+      check.checked = el.imSelectAll.checked;
+      card.classList.toggle("is-selected", el.imSelectAll.checked);
+    }
+  }
+  updateImageManagerToolbar();
+}
+
+async function deleteSelectedImages() {
+  const keys = [...imageSelection];
+  if (!keys.length) return;
+  if (!confirm(`确定删除选中的 ${keys.length} 张图片吗？\n此操作不可恢复，引用它们的文档会显示坏图。`)) return;
+  let failed = 0;
+  for (const key of keys) {
+    const { category, name } = splitImageKey(key);
+    try {
+      await api("/api/image-delete", {
+        method: "POST",
+        body: JSON.stringify({ category, name })
+      });
+      imageSelection.delete(key);
+    } catch (err) {
+      failed++;
+    }
+  }
+  setStatus(failed ? `已删除 ${keys.length - failed} 张，${failed} 张失败` : `已删除 ${keys.length} 张图片`);
+  await loadTree();
+  await renderImageManager();
+}
+
+function formatBytes(size) {
+  const n = Number(size) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function attachImageHover(node, image) {
   node.addEventListener("mouseenter", event => showImageHover(event, image));
   node.addEventListener("mousemove", moveImageHover);
@@ -710,6 +855,24 @@ function embedVideo() {
   setStatus("已嵌入网络视频");
 }
 
+function showImageContextMenu(event, category, name) {
+  el.contextMenu.dataset.type = "image";
+  el.contextMenu.dataset.category = category;
+  el.contextMenu.dataset.name = name;
+  document.querySelector("#newFromFolderItem").hidden = true;
+  document.querySelector("#restoreNoteItem").hidden = true;
+  document.querySelector("#renameNoteItem").hidden = true;
+  document.querySelector("#deleteNoteItem").hidden = true;
+  document.querySelector("#deleteImageItem").hidden = false;
+  document.querySelector("#renameCategoryItem").hidden = true;
+  document.querySelector("#moveCategoryUpItem").hidden = true;
+  document.querySelector("#moveCategoryDownItem").hidden = true;
+  document.querySelector("#deleteCategoryItem").hidden = true;
+  el.contextMenu.style.left = `${event.clientX}px`;
+  el.contextMenu.style.top = `${event.clientY}px`;
+  el.contextMenu.hidden = false;
+}
+
 function showContextMenu(event, category, name) {
   el.contextMenu.dataset.type = "note";
   el.contextMenu.dataset.category = category;
@@ -719,6 +882,7 @@ function showContextMenu(event, category, name) {
   document.querySelector("#restoreNoteItem").hidden = !isTrash;
   document.querySelector("#renameNoteItem").hidden = isTrash;
   document.querySelector("#deleteNoteItem").hidden = isTrash;
+  document.querySelector("#deleteImageItem").hidden = true;
   document.querySelector("#renameCategoryItem").hidden = true;
   document.querySelector("#moveCategoryUpItem").hidden = true;
   document.querySelector("#moveCategoryDownItem").hidden = true;
@@ -736,6 +900,7 @@ function showFolderContextMenu(event, category) {
   document.querySelector("#restoreNoteItem").hidden = true;
   document.querySelector("#renameNoteItem").hidden = true;
   document.querySelector("#deleteNoteItem").hidden = true;
+  document.querySelector("#deleteImageItem").hidden = true;
   document.querySelector("#renameCategoryItem").hidden = true;
   document.querySelector("#moveCategoryUpItem").hidden = true;
   document.querySelector("#moveCategoryDownItem").hidden = true;
@@ -753,6 +918,7 @@ function showCategoryContextMenu(event, category) {
   document.querySelector("#restoreNoteItem").hidden = true;
   document.querySelector("#renameNoteItem").hidden = true;
   document.querySelector("#deleteNoteItem").hidden = true;
+  document.querySelector("#deleteImageItem").hidden = true;
   document.querySelector("#renameCategoryItem").hidden = category === "default" || category === "回收站";
   document.querySelector("#moveCategoryUpItem").hidden = false;
   document.querySelector("#moveCategoryDownItem").hidden = false;
@@ -822,6 +988,20 @@ async function deleteContextNote() {
   state.expanded["回收站"] = true;
   state.expanded["回收站/notes"] = true;
   setStatus(`已移动到回收站：${name}`);
+}
+
+async function deleteContextImage() {
+  const category = el.contextMenu.dataset.category;
+  const name = el.contextMenu.dataset.name;
+  el.contextMenu.hidden = true;
+  if (!category || !name) return;
+  if (!confirm(`确定删除图片「${category}/${name}」吗？\n此操作不可恢复，引用它的文档会显示坏图。`)) return;
+  await api("/api/image-delete", {
+    method: "POST",
+    body: JSON.stringify({ category, name })
+  });
+  await loadTree();
+  setStatus(`已删除图片：${category}/${name}`);
 }
 
 async function deleteContextCategory() {

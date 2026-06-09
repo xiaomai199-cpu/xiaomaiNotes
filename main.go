@@ -345,6 +345,7 @@ func (a *app) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/upload-image", a.requireAuth(a.uploadImage))
 	mux.HandleFunc("/api/images", a.requireAuth(a.images))
 	mux.HandleFunc("/api/image-ref", a.requireAuth(a.imageRef))
+	mux.HandleFunc("/api/image-delete", a.requireAuth(a.imageDelete))
 	mux.HandleFunc("/api/import", a.requireAuth(a.importMarkdown))
 	mux.HandleFunc("/export", a.requireAuth(a.exportMarkdown))
 	mux.HandleFunc("/backup", a.requireAuth(a.backupAll))
@@ -1110,6 +1111,42 @@ func (a *app) imageRef(w http.ResponseWriter, r *http.Request) {
 		"path": "../img/" + destName,
 		"url":  publicURL("/files/" + current + "/img/" + destName),
 	})
+}
+
+func (a *app) imageDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var payload struct {
+		Category string `json:"category"`
+		Name     string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	category, err := cleanName(payload.Category)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	name := filepath.Base(strings.TrimSpace(payload.Name))
+	if name == "" || name == "." || !allowedImageExt(filepath.Ext(name)) {
+		http.Error(w, "invalid image name", http.StatusBadRequest)
+		return
+	}
+	dir := userDataDir(currentUser(r))
+	target := filepath.Join(imgDir(dir, category), name)
+	if err := os.Remove(target); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			http.Error(w, "image not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "category": category, "name": name})
 }
 
 func (a *app) importMarkdown(w http.ResponseWriter, r *http.Request) {

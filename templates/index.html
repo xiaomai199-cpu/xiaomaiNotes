@@ -24,6 +24,7 @@
       <span>Markdown 文档保存在分类目录的 notes 中，图片保存在 img 中。</span>
     </div>
     <nav>
+      <button id="imageManagerBtn" title="管理所有分类的图片">图片管理</button>
       <button id="exportBtn" title="导出当前笔记">导出</button>
       <button id="backupBtn" title="备份全部分类和笔记">备份</button>
       <span class="nav-user">{{.Username}}</span>
@@ -115,11 +116,26 @@
       <div id="imageGrid" class="image-grid"></div>
     </div>
   </div>
+  <div id="imageManagerModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <strong>图片管理</strong>
+        <button id="closeImageManagerModal" title="关闭">关闭</button>
+      </div>
+      <div class="image-manager-toolbar">
+        <label class="im-select-all"><input type="checkbox" id="imSelectAll"> 全选</label>
+        <span id="imSelectedCount" class="im-count">已选 0 张</span>
+        <button id="imDeleteSelected" class="im-delete-selected" disabled>删除选中</button>
+      </div>
+      <div id="imageManagerGrid" class="image-grid image-manager-grid"></div>
+    </div>
+  </div>
   <div id="contextMenu" class="context-menu" hidden>
     <button id="newFromFolderItem">新建文档</button>
     <button id="restoreNoteItem">恢复</button>
     <button id="renameNoteItem">重命名</button>
     <button id="deleteNoteItem">删除文档</button>
+    <button id="deleteImageItem">删除图片</button>
     <button id="renameCategoryItem">重命名分类</button>
     <button id="moveCategoryUpItem">上移分类</button>
     <button id="moveCategoryDownItem">下移分类</button>
