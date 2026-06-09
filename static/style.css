@@ -257,6 +257,15 @@ button:hover,
   grid-template-columns: 1fr;
 }
 
+/* 目录（TOC）可见时，在编辑区右侧让出一列 */
+body.toc-visible .split {
+  grid-template-columns: 1fr 1fr 240px;
+}
+
+body.toc-visible .split[data-view-mode="preview"] {
+  grid-template-columns: 1fr 240px;
+}
+
 #editor {
   width: 100%;
   height: 100%;
@@ -423,29 +432,18 @@ body.fullscreen-mode .preview {
   padding: 18px;
 }
 
-/* 全屏目录（TOC）面板 */
+/* 文档目录（TOC）面板：编辑区右侧常驻列 */
 .toc-panel {
-  display: none;
-}
-
-body.fullscreen-mode .toc-panel {
   display: flex;
   flex-direction: column;
-  position: fixed;
-  top: 0;
-  right: 0;
-  width: 260px;
-  height: 100vh;
-  z-index: 1100;
+  min-height: 0;
   background: var(--panel);
   border-left: 1px solid var(--line);
-  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.06);
   overflow: hidden;
 }
 
-/* 全屏且目录可见时，给编辑区右侧让出空间 */
-body.fullscreen-mode.toc-visible .editor-pane {
-  right: 260px;
+.toc-panel[hidden] {
+  display: none;
 }
 
 .toc-panel__head {
@@ -1028,9 +1026,15 @@ body.fullscreen-mode.toc-visible .editor-pane {
     min-height: 260px;
   }
 
-  .split {
+  .split,
+  body.toc-visible .split,
+  body.toc-visible .split[data-view-mode="preview"] {
     min-height: 720px;
     grid-template-columns: 1fr;
+  }
+
+  .toc-panel {
+    display: none !important;
   }
 
   #editor {

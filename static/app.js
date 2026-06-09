@@ -1020,8 +1020,9 @@ function buildTOC() {
 
 function updateTocVisibility() {
   if (!el.tocPanel) return;
-  // 仅在全屏且预览可见时显示目录
-  const show = state.fullscreen && !el.preview.hidden;
+  // 预览可见且文档有标题时，在编辑区右侧显示目录（全屏和普通模式均显示）
+  const hasHeadings = !!(el.tocList && el.tocList.querySelector("a"));
+  const show = !el.preview.hidden && hasHeadings;
   el.tocPanel.hidden = !show;
   document.body.classList.toggle("toc-visible", show);
 }
