@@ -60,9 +60,10 @@ type sessionData struct {
 }
 
 type User struct {
-	Username string `json:"username"`
-	PassHash string `json:"passHash"`
-	IsAdmin  bool   `json:"isAdmin"`
+	Username   string `json:"username"`
+	PassHash   string `json:"passHash"`
+	IsAdmin    bool   `json:"isAdmin"`
+	SyncOffset int    `json:"syncOffset"` // 源码↔预览同步的默认行号偏移（用户级）
 }
 
 type app struct {
@@ -358,6 +359,7 @@ func (a *app) registerRoutes(mux *http.ServeMux) {
 
 	// user self-service
 	mux.HandleFunc("/api/user/password", a.requireAuth(a.changePassword))
+	mux.HandleFunc("/api/user/sync-offset", a.requireAuth(a.userSyncOffset))
 
 	// admin
 	mux.HandleFunc("/admin", a.requireAuth(a.requireAdmin(a.adminPage)))
@@ -531,6 +533,58 @@ func (a *app) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// userSyncOffset 读取/保存当前用户的源码↔预览同步默认偏移
+func (a *app) userSyncOffset(w http.ResponseWriter, r *http.Request) {
+	username := currentUser(r)
+	switch r.Method {
+	case http.MethodGet:
+		user, ok := findUser(username)
+		if !ok {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]int{"offset": user.SyncOffset})
+	case http.MethodPost:
+		var payload struct {
+			Offset int `json:"offset"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		// 限制在合理范围，避免异常值
+		if payload.Offset < -500 {
+			payload.Offset = -500
+		} else if payload.Offset > 500 {
+			payload.Offset = 500
+		}
+		users, err := readUsers()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		found := false
+		for i, u := range users {
+			if u.Username == username {
+				users[i].SyncOffset = payload.Offset
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		if err := writeUsers(users); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]int{"offset": payload.Offset})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (a *app) adminCreateUser(w http.ResponseWriter, r *http.Request) {

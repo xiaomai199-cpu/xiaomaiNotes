@@ -67,6 +67,13 @@
         <button type="button" class="view-toggle__btn" data-view-mode="source" title="只显示 Markdown 源码">仅源码</button>
         <button type="button" class="view-toggle__btn" data-view-mode="preview" title="在编辑器区域内只显示渲染预览">仅预览</button>
         <button type="button" class="view-toggle__btn" data-view-mode="fullscreen" title="全屏显示，隐藏除编辑区外的所有元素">全屏显示</button>
+        <div class="sync-offset" title="手动微调源码与预览的同步行号偏差（全屏与非全屏均可用）">
+          <span class="sync-offset__label">同步偏移</span>
+          <button type="button" id="syncOffsetDec" class="sync-offset__btn" title="预览匹配位置上移一行">−</button>
+          <span id="syncOffsetVal" class="sync-offset__val">0</span>
+          <button type="button" id="syncOffsetInc" class="sync-offset__btn" title="预览匹配位置下移一行">+</button>
+          <button type="button" id="syncOffsetReset" class="sync-offset__btn sync-offset__reset" title="偏移归零">归零</button>
+        </div>
         <button type="button" class="view-toggle__btn view-toggle__btn--escape" data-view-mode="exit-fullscreen" title="退出全屏显示">退出全屏</button>
       </div>
       <div class="split">

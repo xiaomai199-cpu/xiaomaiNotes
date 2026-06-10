@@ -217,6 +217,60 @@ button:hover,
   box-shadow: 0 4px 12px rgba(35, 120, 80, 0.24);
 }
 
+/* 源码↔预览 同步偏移微调条（全屏与非全屏通用） */
+.sync-offset {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  margin-left: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+}
+
+.sync-offset__label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.sync-offset__btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  border-radius: 6px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sync-offset__btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.sync-offset__reset {
+  font-size: 12px;
+}
+
+.sync-offset__val {
+  min-width: 30px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text, #333);
+}
+
+.sync-offset__val.is-adjusted {
+  color: var(--accent-dark, #1f7a4d);
+}
+
 .tool-group {
   display: flex;
   align-items: center;

@@ -11,7 +11,8 @@ const state = {
   autoSaveAgain: false,
   lastSavedKey: "",
   lastSavedContent: "",
-  fullscreen: false
+  fullscreen: false,
+  syncOffset: 0 // 源码↔预览同步的手动行号补偿（用户可微调）
 };
 
 const basePath = (window.APP_BASE_PATH || "").replace(/\/$/, "");
@@ -37,7 +38,11 @@ const el = {
   viewToggle: document.querySelector(".view-toggle"),
   viewToggleButtons: document.querySelectorAll(".view-toggle__btn"),
   tocPanel: document.querySelector("#tocPanel"),
-  tocList: document.querySelector("#tocList")
+  tocList: document.querySelector("#tocList"),
+  syncOffsetVal: document.querySelector("#syncOffsetVal"),
+  syncOffsetInc: document.querySelector("#syncOffsetInc"),
+  syncOffsetDec: document.querySelector("#syncOffsetDec"),
+  syncOffsetReset: document.querySelector("#syncOffsetReset")
 };
 
 document.querySelector("#saveBtn").addEventListener("click", saveNote);
@@ -71,6 +76,18 @@ el.viewToggleButtons.forEach(btn => {
     setViewMode(mode);
   });
 });
+
+// 同步偏移微调条：手动补偿源码与预览的行号偏差，保存为该用户的系统默认值
+(function initSyncOffset() {
+  renderSyncOffset();
+  if (el.syncOffsetInc) el.syncOffsetInc.addEventListener("click", () => setSyncOffset(state.syncOffset + 1));
+  if (el.syncOffsetDec) el.syncOffsetDec.addEventListener("click", () => setSyncOffset(state.syncOffset - 1));
+  if (el.syncOffsetReset) el.syncOffsetReset.addEventListener("click", () => setSyncOffset(0));
+  // 从服务器读取该用户保存的默认偏移（不回写）
+  api("/api/user/sync-offset").then(d => {
+    if (d && typeof d.offset === "number") setSyncOffset(d.offset, false);
+  }).catch(() => {});
+})();
 el.category.addEventListener("change", async () => {
   const previousCategory = state.category;
   if (state.dirty) {
@@ -1254,6 +1271,7 @@ function addLineNumbersToHTML(html, markdown) {
     let inCodeBlock = false;
     let inHTMLBlock = false;
     let inList = false;       // 处于列表块中（松散列表跨单个空行仍算同一块）
+    let inTable = false;      // 处于 GFM 表格块中
     let pendingBlock = false; // 段落/引用等待结束
     let consecutiveEmptyCount = 0;
 
@@ -1291,6 +1309,22 @@ function addLineNumbersToHTML(html, markdown) {
       }
       if (inHTMLBlock) continue;
 
+      // 表格主体：含 | 或纯分隔行的非空行都属于当前表格块，空行结束表格
+      if (inTable) {
+        if (trimmed !== '' && (trimmed.includes('|') || /^[-:\s|]+$/.test(trimmed))) {
+          consecutiveEmptyCount = 0;
+          continue;
+        }
+        inTable = false; // 非表格行：退出表格，继续按下方逻辑处理本行
+      }
+
+      // 整行 HTML 注释：渲染为注释节点，预览端 htmlBlocks 遍历 element 时会跳过，
+      // 这里也不计为块，避免其后行号整体偏移
+      if (/^<!--[\s\S]*-->$/.test(trimmed)) {
+        consecutiveEmptyCount = 0;
+        continue;
+      }
+
       // 空行：结束段落；单个空行不结束列表（松散列表），连续空行才结束
       if (trimmed === '') {
         consecutiveEmptyCount++;
@@ -1325,6 +1359,18 @@ function addLineNumbersToHTML(html, markdown) {
 
       // 顶格的非列表行 → 列表结束
       inList = false;
+
+      // GFM 表格开始：当前行含 |，且下一行是分隔行（如 | --- | --- |），表格独立成块
+      if (trimmed.includes('|') && i + 1 < lines.length) {
+        const next = lines[i + 1].trim();
+        if (next.includes('-') && next.includes('|') && /^[-:\s|]+$/.test(next)) {
+          blockStarts.push(i);
+          inTable = true;
+          pendingBlock = false;
+          consecutiveEmptyCount = 0;
+          continue;
+        }
+      }
 
       // 标题
       if (/^#{1,6}\s/.test(trimmed)) {
@@ -1397,7 +1443,31 @@ function getLineNumberAtCursor() {
   return text.substring(0, pos).split(/\r?\n/).length;
 }
 
-let _syncScrolling = false; // 防止互相触发循环
+let _syncUntil = 0; // 同步滚动的保护窗口截止时间，防止编辑器与预览互相触发
+function syncActive() { return Date.now() < _syncUntil; }
+function beginSync(ms = 150) { _syncUntil = Date.now() + ms; }
+
+function renderSyncOffset() {
+  if (!el.syncOffsetVal) return;
+  const v = state.syncOffset;
+  el.syncOffsetVal.textContent = v > 0 ? `+${v}` : String(v);
+  el.syncOffsetVal.classList.toggle("is-adjusted", v !== 0);
+}
+
+function setSyncOffset(v, persist = true) {
+  state.syncOffset = v;
+  renderSyncOffset();
+  if (persist) {
+    // 保存为该用户的系统默认值（服务器端，跨设备同步）
+    api("/api/user/sync-offset", { method: "POST", body: JSON.stringify({ offset: v }) })
+      .then(() => setStatus(`同步偏移已保存为默认值：${v > 0 ? "+" + v : v}`))
+      .catch(err => setStatus(`同步偏移保存失败：${err.message}`));
+  }
+  // 立即按当前光标重新同步一次，给出即时反馈
+  const lineNum = getLineNumberAtCursor();
+  syncPreviewToLine(lineNum);
+  highlightPreviewLine(lineNum);
+}
 
 function syncScrollOnEdit() {
   const lineNum = getLineNumberAtCursor();
@@ -1406,8 +1476,9 @@ function syncScrollOnEdit() {
 }
 
 function syncPreviewToLine(lineNum) {
-  if (_syncScrolling || el.preview.hidden || el.preview.offsetHeight === 0) return;
-  
+  if (el.preview.hidden || el.preview.offsetHeight === 0) return;
+  lineNum += state.syncOffset; // 应用手动同步偏移（源码行 → 预览块）
+
   // 找到最接近但不超过 lineNum 的 data-line 元素（语义匹配）
   // 这样当光标在多行段落的中间行时，仍然能正确匹配到该段落的起始块
   let targetElement = null;
@@ -1444,11 +1515,10 @@ function syncPreviewToLine(lineNum) {
     const isBelow = rect.bottom > previewRect.bottom;
     
     if (isAbove || isBelow) {
-      _syncScrolling = true;
-      // 使用更精确的滚动方式
+      // 标记保护窗口：本次滚动引发的 preview scroll 事件不应反向移动编辑器光标
+      beginSync();
       const offsetTop = targetElement.offsetTop - el.preview.offsetHeight * 0.3;
       el.preview.scrollTop = Math.max(0, offsetTop);
-      _syncScrolling = false;
     }
   }
 }
@@ -1484,6 +1554,7 @@ function findBestMatchLine(lineNum) {
 }
 
 function highlightPreviewLine(lineNum) {
+  lineNum += state.syncOffset; // 应用手动同步偏移（源码行 → 预览块）
   // 清除旧的激活高亮
   el.preview.querySelectorAll('.sync-active-line').forEach(el => el.classList.remove('sync-active-line'));
   // 语义匹配找到最合适的行
@@ -1541,13 +1612,13 @@ function handlePreviewClick(e) {
   }
   
   if (lineNum) {
-    // 在编辑器中定位到相应行
-    scrollEditorToLine(lineNum);
+    // 在编辑器中定位到相应行（预览块行号 → 源码行，反向去除偏移）
+    scrollEditorToLine(lineNum - state.syncOffset);
   }
 }
 
 function handlePreviewScroll() {
-  if (_syncScrolling || el.editor.hidden) return;
+  if (syncActive() || el.editor.hidden) return;
   
   // 获取预览中当前可见区域的第一个块级元素及其行号
   const previewRect = el.preview.getBoundingClientRect();
@@ -1568,14 +1639,13 @@ function handlePreviewScroll() {
   }
   
   if (bestLine) {
-    // 找到该区块起始行的最近匹配行（语义匹配）
+    // 找到该区块起始行的最近匹配行（语义匹配）；预览块行号 → 源码行，反向去除偏移
     const matchLine = findBestMatchLine(bestLine) || bestLine;
-    scrollEditorToLine(matchLine, true);
+    scrollEditorToLine(matchLine - state.syncOffset, true);
   }
 }
 
 function scrollEditorToLine(lineNum, silent = false) {
-  if (_syncScrolling) return;
   const lines = el.editor.value.split(/\r?\n/);
   let pos = 0;
   
@@ -1584,8 +1654,11 @@ function scrollEditorToLine(lineNum, silent = false) {
     pos += lines[i].length + 1; // +1 for newline
   }
   
-  el.editor.setSelectionRange(pos, pos);
-  if (!silent) el.editor.focus();
+  // 仅在用户主动点击预览（非 silent）时移动光标并聚焦；滚动同步不应改变编辑器光标
+  if (!silent) {
+    el.editor.setSelectionRange(pos, pos);
+    el.editor.focus();
+  }
 
   // 在编辑器中滚动到该行（计入文本域的上内边距，避免定位偏上）
   const styles = window.getComputedStyle(el.editor);
