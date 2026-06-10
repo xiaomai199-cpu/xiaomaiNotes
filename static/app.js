@@ -615,7 +615,7 @@ function selectedNotesFor(category) {
 }
 
 async function openImagePicker() {
-  const images = await api("/api/images");
+  const images = (await api("/api/images")) || [];
   el.imageGrid.innerHTML = "";
   if (images.length === 0) {
     const empty = document.createElement("div");
@@ -655,6 +655,22 @@ function splitImageKey(key) {
   return { category: key.slice(0, idx), name: key.slice(idx + 1) };
 }
 
+// 删除图片后，把当前打开文档正文里引用这张图的 ![]() 和 <img> 一并移除。
+// 引用是相对路径（../img/名字），只对同分类的当前文档生效。返回是否有改动。
+function removeImageRefsFromEditor(category, name) {
+  const noteCategory = el.category.value || state.category;
+  if (!state.note || category !== noteCategory) return false;
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const original = el.editor.value;
+  let next = original
+    .replace(new RegExp(`<img\\b[^>]*?src\\s*=\\s*["'][^"']*?/${esc}(?![\\w.-])[^"']*?["'][^>]*?>\\n?`, "gi"), "")
+    .replace(new RegExp(`!\\[[^\\]]*\\]\\([^)]*?/${esc}(?![\\w.-])[^)]*?\\)\\n?`, "gi"), "");
+  if (next === original) return false;
+  el.editor.value = next;
+  state.dirty = true;
+  return true;
+}
+
 async function openImageManager() {
   el.imageManagerModal.hidden = false;
   imageSelection.clear();
@@ -667,7 +683,7 @@ function closeImageManager() {
 }
 
 async function renderImageManager() {
-  imageManagerImages = await api("/api/images");
+  imageManagerImages = (await api("/api/images")) || [];
   // 清理选中集合中已不存在的图片
   const validKeys = new Set(imageManagerImages.map(imageKey));
   for (const key of [...imageSelection]) {
@@ -706,14 +722,22 @@ async function renderImageManager() {
     });
     card.querySelector(".image-delete-btn").addEventListener("click", async () => {
       if (!confirm(`确定删除图片「${image.category}/${image.name}」吗？\n此操作不可恢复，引用它的文档会显示坏图。`)) return;
-      await api("/api/image-delete", {
-        method: "POST",
-        body: JSON.stringify({ category: image.category, name: image.name })
-      });
+      try {
+        await api("/api/image-delete", {
+          method: "POST",
+          body: JSON.stringify({ category: image.category, name: image.name })
+        });
+      } catch (err) {
+        alert("删除失败：" + (err && err.message ? err.message : err));
+        return;
+      }
       imageSelection.delete(key);
+      const edited = removeImageRefsFromEditor(image.category, image.name);
       setStatus(`已删除图片：${image.category}/${image.name}`);
-      await loadTree();
       await renderImageManager();
+      try { await loadTree(); } catch (e) {}
+      renderPreview();
+      if (edited) scheduleAutoSave();
     });
     el.imageManagerGrid.appendChild(card);
   }
@@ -750,6 +774,7 @@ async function deleteSelectedImages() {
   if (!keys.length) return;
   if (!confirm(`确定删除选中的 ${keys.length} 张图片吗？\n此操作不可恢复，引用它们的文档会显示坏图。`)) return;
   let failed = 0;
+  let edited = false;
   for (const key of keys) {
     const { category, name } = splitImageKey(key);
     try {
@@ -758,13 +783,16 @@ async function deleteSelectedImages() {
         body: JSON.stringify({ category, name })
       });
       imageSelection.delete(key);
+      if (removeImageRefsFromEditor(category, name)) edited = true;
     } catch (err) {
       failed++;
     }
   }
   setStatus(failed ? `已删除 ${keys.length - failed} 张，${failed} 张失败` : `已删除 ${keys.length} 张图片`);
-  await loadTree();
   await renderImageManager();
+  try { await loadTree(); } catch (e) {}
+  renderPreview();
+  if (edited) scheduleAutoSave();
 }
 
 function formatBytes(size) {
@@ -996,11 +1024,20 @@ async function deleteContextImage() {
   el.contextMenu.hidden = true;
   if (!category || !name) return;
   if (!confirm(`确定删除图片「${category}/${name}」吗？\n此操作不可恢复，引用它的文档会显示坏图。`)) return;
-  await api("/api/image-delete", {
-    method: "POST",
-    body: JSON.stringify({ category, name })
-  });
+  try {
+    await api("/api/image-delete", {
+      method: "POST",
+      body: JSON.stringify({ category, name })
+    });
+  } catch (err) {
+    alert("删除失败：" + (err && err.message ? err.message : err));
+    return;
+  }
+  const edited = removeImageRefsFromEditor(category, name);
   await loadTree();
+  renderPreview();
+  if (edited) scheduleAutoSave();
+  if (!el.imageManagerModal.hidden) await renderImageManager();
   setStatus(`已删除图片：${category}/${name}`);
 }
 
@@ -1216,18 +1253,21 @@ function addLineNumbersToHTML(html, markdown) {
     const blockStarts = []; // 每个渲染块对应的 markdown 起始行号
     let inCodeBlock = false;
     let inHTMLBlock = false;
-    let pendingBlock = false; // 待结束的块
+    let inList = false;       // 处于列表块中（松散列表跨单个空行仍算同一块）
+    let pendingBlock = false; // 段落/引用等待结束
     let consecutiveEmptyCount = 0;
-    
+
     for (let i = 0; i < lines.length; i++) {
-      const trimmed = lines[i].trim();
-      
+      const raw = lines[i];
+      const trimmed = raw.trim();
+
       // 代码块：整体算一个块
       if (trimmed.startsWith('```')) {
         if (!inCodeBlock) {
           inCodeBlock = true;
           blockStarts.push(i);
           pendingBlock = false;
+          inList = false;
           consecutiveEmptyCount = 0;
         } else {
           inCodeBlock = false;
@@ -1235,12 +1275,13 @@ function addLineNumbersToHTML(html, markdown) {
         continue;
       }
       if (inCodeBlock) continue;
-      
+
       // HTML 嵌入块
       if (trimmed === '<!-- html:start -->') {
         inHTMLBlock = true;
         blockStarts.push(i);
         pendingBlock = false;
+        inList = false;
         consecutiveEmptyCount = 0;
         continue;
       }
@@ -1249,14 +1290,42 @@ function addLineNumbersToHTML(html, markdown) {
         continue;
       }
       if (inHTMLBlock) continue;
-      
-      // 空行：结束当前块
+
+      // 空行：结束段落；单个空行不结束列表（松散列表），连续空行才结束
       if (trimmed === '') {
         consecutiveEmptyCount++;
         pendingBlock = false;
+        if (consecutiveEmptyCount >= 2) inList = false;
         continue;
       }
-      
+
+      // Setext 标题下划线：紧跟段落（pendingBlock）的纯 = 或 - 行，归入上一块，不新建块
+      if (pendingBlock && !inList && /^(=+|-+)\s*$/.test(trimmed)) {
+        pendingBlock = false;
+        consecutiveEmptyCount = 0;
+        continue;
+      }
+
+      // 列表项：整个列表（含松散列表）算一个块
+      if (/^\s*[-*+]\s+/.test(trimmed) || /^\s*\d+\.\s+/.test(trimmed)) {
+        if (!inList) {
+          blockStarts.push(i);
+          inList = true;
+        }
+        pendingBlock = false;
+        consecutiveEmptyCount = 0;
+        continue;
+      }
+
+      // 列表内的缩进延续行：属于当前列表块，不新建块
+      if (inList && /^\s+\S/.test(raw)) {
+        consecutiveEmptyCount = 0;
+        continue;
+      }
+
+      // 顶格的非列表行 → 列表结束
+      inList = false;
+
       // 标题
       if (/^#{1,6}\s/.test(trimmed)) {
         blockStarts.push(i);
@@ -1264,7 +1333,7 @@ function addLineNumbersToHTML(html, markdown) {
         consecutiveEmptyCount = 0;
         continue;
       }
-      
+
       // 水平线
       if (/^\s{0,3}(-{3,}|\*{3,}|_{3,})\s*$/.test(trimmed)) {
         blockStarts.push(i);
@@ -1272,18 +1341,7 @@ function addLineNumbersToHTML(html, markdown) {
         consecutiveEmptyCount = 0;
         continue;
       }
-      
-      // 列表项
-      if (/^\s*[-*+]\s+/.test(trimmed) || /^\s*\d+\.\s+/.test(trimmed)) {
-        // 检查是否与前一个是连续列表（之间只有空行）
-        if (!pendingBlock || consecutiveEmptyCount > 0) {
-          blockStarts.push(i);
-        }
-        pendingBlock = true;
-        consecutiveEmptyCount = 0;
-        continue;
-      }
-      
+
       // 块引用
       if (trimmed.startsWith('>')) {
         if (!pendingBlock) {
@@ -1293,7 +1351,7 @@ function addLineNumbersToHTML(html, markdown) {
         consecutiveEmptyCount = 0;
         continue;
       }
-      
+
       // 普通文本行（段落）：只有在新段落开始时记录行号
       if (!pendingBlock) {
         blockStarts.push(i);
@@ -1528,11 +1586,13 @@ function scrollEditorToLine(lineNum, silent = false) {
   
   el.editor.setSelectionRange(pos, pos);
   if (!silent) el.editor.focus();
-  
-  // 在编辑器中滚动到该行
-  const lineHeight = parseInt(window.getComputedStyle(el.editor).lineHeight, 10);
+
+  // 在编辑器中滚动到该行（计入文本域的上内边距，避免定位偏上）
+  const styles = window.getComputedStyle(el.editor);
+  const lineHeight = parseFloat(styles.lineHeight) || 22;
+  const paddingTop = parseFloat(styles.paddingTop) || 0;
   const cursorLine = lineNum - 1;
-  const scrollTop = Math.max(0, cursorLine * lineHeight - el.editor.clientHeight / 3);
+  const scrollTop = Math.max(0, cursorLine * lineHeight + paddingTop - el.editor.clientHeight / 3);
   el.editor.scrollTop = scrollTop;
   
   highlightPreviewLine(lineNum);

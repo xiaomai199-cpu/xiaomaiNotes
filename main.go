@@ -1046,7 +1046,7 @@ func (a *app) images(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var images []imageInfo
+	images := []imageInfo{}
 	for _, cat := range cats {
 		images = append(images, cat.Images...)
 	}
