@@ -102,8 +102,6 @@ el.editor.addEventListener("input", () => {
   state.dirty = true;
   renderPreview();
   scheduleAutoSave();
-  // 实时同步滚动
-  syncScrollOnEdit();
 });
 el.noteName.addEventListener("input", () => {
   state.note = normalizeMarkdownName(el.noteName.value);
@@ -1245,6 +1243,12 @@ function buildTOC() {
       if (!target) return;
       const offset = target.getBoundingClientRect().top - el.preview.getBoundingClientRect().top;
       el.preview.scrollTop += offset - 8;
+      // 同步编辑器滚动到该标题对应的源码行（预览块行号 → 源码行，反向去除偏移）
+      // 两边都把标题对齐到距视口顶部 8px 处，保证源码与预览标题对齐
+      const dataLine = parseInt(target.getAttribute("data-line"), 10);
+      if (!el.editor.hidden && Number.isFinite(dataLine)) {
+        scrollEditorToLine(dataLine - state.syncOffset, true, 8);
+      }
     });
     li.appendChild(a);
     el.tocList.appendChild(li);
@@ -1443,9 +1447,52 @@ function getLineNumberAtCursor() {
   return text.substring(0, pos).split(/\r?\n/).length;
 }
 
-let _syncUntil = 0; // 同步滚动的保护窗口截止时间，防止编辑器与预览互相触发
-function syncActive() { return Date.now() < _syncUntil; }
-function beginSync(ms = 150) { _syncUntil = Date.now() + ms; }
+// ── 编辑器行像素定位（镜像元素精确测量，计入软换行） ──────────────
+let _editorMirror = null;
+function getEditorLineTop(lineNum) {
+  const ta = el.editor;
+  if (!_editorMirror) {
+    _editorMirror = document.createElement("div");
+    const s = _editorMirror.style;
+    s.position = "absolute";
+    s.visibility = "hidden";
+    s.top = "-99999px";
+    s.left = "-99999px";
+    s.border = "0";
+    document.body.appendChild(_editorMirror);
+  }
+  // 复制影响换行与行高的关键样式，使镜像与 textarea 排版一致
+  const cs = window.getComputedStyle(ta);
+  const m = _editorMirror.style;
+  ["fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing",
+   "wordSpacing", "tabSize", "textIndent", "paddingTop", "paddingLeft", "paddingRight",
+   "wordBreak"].forEach(p => { m[p] = cs[p]; });
+  m.whiteSpace = "pre-wrap";      // textarea 的软换行规则
+  m.overflowWrap = "break-word";
+  m.boxSizing = "border-box";
+  m.width = ta.clientWidth + "px";
+
+  const lines = ta.value.split(/\r?\n/);
+  let pos = 0;
+  for (let i = 0; i < Math.min(lineNum - 1, lines.length); i++) pos += lines[i].length + 1;
+
+  _editorMirror.textContent = ta.value.substring(0, pos);
+  const marker = document.createElement("span");
+  marker.textContent = "​"; // 零宽占位符，标记该行行首位置
+  _editorMirror.appendChild(marker);
+  // offsetTop 相对镜像顶部（含上内边距），与 textarea 的 scrollTop 同坐标系
+  return marker.offsetTop;
+}
+
+// 预览中紧随 bestLine 之后的下一个块的起始行号（用于块内按行比例插值；找不到返回 null）
+function getNextBlockLine(bestLine) {
+  let next = null;
+  el.preview.querySelectorAll('[data-line]').forEach(elem => {
+    const dl = parseInt(elem.getAttribute('data-line'), 10);
+    if (dl > bestLine && (next === null || dl < next)) next = dl;
+  });
+  return next;
+}
 
 function renderSyncOffset() {
   if (!el.syncOffsetVal) return;
@@ -1469,13 +1516,7 @@ function setSyncOffset(v, persist = true) {
   highlightPreviewLine(lineNum);
 }
 
-function syncScrollOnEdit() {
-  const lineNum = getLineNumberAtCursor();
-  syncPreviewToLine(lineNum);
-  highlightPreviewLine(lineNum);
-}
-
-function syncPreviewToLine(lineNum) {
+function syncPreviewToLine(lineNum, align = false) {
   if (el.preview.hidden || el.preview.offsetHeight === 0) return;
   lineNum += state.syncOffset; // 应用手动同步偏移（源码行 → 预览块）
 
@@ -1483,7 +1524,7 @@ function syncPreviewToLine(lineNum) {
   // 这样当光标在多行段落的中间行时，仍然能正确匹配到该段落的起始块
   let targetElement = null;
   let bestLine = -1;
-  
+
   const allLineElements = el.preview.querySelectorAll('[data-line]');
   for (const elem of allLineElements) {
     const dl = parseInt(elem.getAttribute('data-line'), 10);
@@ -1492,7 +1533,7 @@ function syncPreviewToLine(lineNum) {
       targetElement = elem;
     }
   }
-  
+
   // 如果没有 < 的行，取最近的大于行
   if (!targetElement) {
     let bestDiff = Infinity;
@@ -1502,21 +1543,36 @@ function syncPreviewToLine(lineNum) {
       if (diff < bestDiff) {
         bestDiff = diff;
         targetElement = elem;
+        bestLine = dl;
       }
     }
   }
-  
+
   if (targetElement) {
+    if (align && !el.editor.hidden) {
+      // 对齐模式：按光标行在块内的行数比例，把预览中对应内容滚动到与光标行相同的纵向位置
+      const cursorSrcLine = lineNum - state.syncOffset;  // 光标所在源码行
+      const blockSrcStart = bestLine - state.syncOffset; // 块起始源码行
+      const totalLines = el.editor.value.split(/\r?\n/).length;
+      const nextPreviewLine = getNextBlockLine(bestLine);
+      const blockSrcEnd = nextPreviewLine === null ? totalLines + 1 : nextPreviewLine - state.syncOffset;
+      const fraction = Math.min(1, Math.max(0,
+        (cursorSrcLine - blockSrcStart) / Math.max(1, blockSrcEnd - blockSrcStart)));
+      const previewTargetY = targetElement.offsetTop + fraction * targetElement.offsetHeight;
+      // 光标行在编辑器视口中的实际像素位置（镜像测量，计入软换行）
+      const editorY = getEditorLineTop(cursorSrcLine) - el.editor.scrollTop;
+      el.preview.scrollTop = Math.max(0, previewTargetY - Math.max(0, editorY));
+      return;
+    }
+
     const previewRect = el.preview.getBoundingClientRect();
     const rect = targetElement.getBoundingClientRect();
-    
+
     // 检查元素是否在可见区域之外
     const isAbove = rect.top < previewRect.top;
     const isBelow = rect.bottom > previewRect.bottom;
-    
+
     if (isAbove || isBelow) {
-      // 标记保护窗口：本次滚动引发的 preview scroll 事件不应反向移动编辑器光标
-      beginSync();
       const offsetTop = targetElement.offsetTop - el.preview.offsetHeight * 0.3;
       el.preview.scrollTop = Math.max(0, offsetTop);
     }
@@ -1571,37 +1627,26 @@ function setupSyncScroll() {
   // 移除旧的事件监听器
   el.editor.removeEventListener("click", handleEditorClick);
   el.preview.removeEventListener("click", handlePreviewClick);
-  el.editor.removeEventListener("keyup", handleEditorKeyup);
-  el.preview.removeEventListener("scroll", handlePreviewScroll);
-  
-  // 添加新的事件监听器
+
+  // 添加新的事件监听器（仅 Cmd/Ctrl+点击 才触发同步）
   el.editor.addEventListener("click", handleEditorClick);
   el.preview.addEventListener("click", handlePreviewClick);
-  el.editor.addEventListener("keyup", handleEditorKeyup);
-  el.preview.addEventListener("scroll", handlePreviewScroll, { passive: true });
-}
-
-function handleEditorKeyup(e) {
-  // 方向键、PageUp/Down、Home/End 等导航键才触发同步
-  const navKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End"];
-  if (navKeys.includes(e.key)) {
-    const lineNum = getLineNumberAtCursor();
-    syncPreviewToLine(lineNum);
-    highlightPreviewLine(lineNum);
-  }
 }
 
 function handleEditorClick(e) {
+  if (!(e.metaKey || e.ctrlKey)) return; // 仅 Cmd/Ctrl+点击 才同步预览
   const lineNum = getLineNumberAtCursor();
-  syncPreviewToLine(lineNum);
+  syncPreviewToLine(lineNum, true); // 对齐模式：预览块与源码行滚动到同一纵向位置
   highlightPreviewLine(lineNum);
 }
 
 function handlePreviewClick(e) {
+  if (!(e.metaKey || e.ctrlKey)) return; // 仅 Cmd/Ctrl+点击 才同步编辑器
+  e.preventDefault(); // 阻止 Cmd+点击链接时新开标签页等默认行为
   // 查找点击元素或其父元素中的 data-line 属性
   let target = e.target;
   let lineNum = null;
-  
+
   while (target && target !== el.preview) {
     const dataLine = target.getAttribute("data-line");
     if (dataLine) {
@@ -1610,42 +1655,26 @@ function handlePreviewClick(e) {
     }
     target = target.parentElement;
   }
-  
+
   if (lineNum) {
-    // 在编辑器中定位到相应行（预览块行号 → 源码行，反向去除偏移）
-    scrollEditorToLine(lineNum - state.syncOffset);
+    // 按点击点在块内的纵向比例估算对应源码行（预览块行号 → 源码行，反向去除偏移），
+    // 并把该行滚动到与点击点相同的纵向位置，使点击处内容两边对齐
+    const rect = target.getBoundingClientRect();
+    const blockSrcStart = lineNum - state.syncOffset;
+    const totalLines = el.editor.value.split(/\r?\n/).length;
+    const nextPreviewLine = getNextBlockLine(lineNum);
+    const blockSrcEnd = nextPreviewLine === null ? totalLines + 1 : nextPreviewLine - state.syncOffset;
+    const fraction = rect.height > 0
+      ? Math.min(0.999, Math.max(0, (e.clientY - rect.top) / rect.height))
+      : 0;
+    const srcLine = Math.min(totalLines, Math.max(1,
+      Math.floor(blockSrcStart + fraction * (blockSrcEnd - blockSrcStart))));
+    const clickY = e.clientY - el.preview.getBoundingClientRect().top;
+    scrollEditorToLine(srcLine, false, Math.max(0, clickY));
   }
 }
 
-function handlePreviewScroll() {
-  if (syncActive() || el.editor.hidden) return;
-  
-  // 获取预览中当前可见区域的第一个块级元素及其行号
-  const previewRect = el.preview.getBoundingClientRect();
-  const previewTop = previewRect.top + 10; // 加一点偏移取可见区域稍下的位置
-  
-  // 遍历所有有 data-line 的元素，找到第一个在可见区域内的
-  const lineElements = el.preview.querySelectorAll('[data-line]');
-  let bestLine = null;
-  let bestDistance = Infinity;
-  
-  for (const elem of lineElements) {
-    const rect = elem.getBoundingClientRect();
-    const distance = Math.abs(rect.top - previewTop);
-    if (rect.top < previewRect.bottom && rect.bottom > previewRect.top && distance < bestDistance) {
-      bestDistance = distance;
-      bestLine = parseInt(elem.getAttribute('data-line'), 10);
-    }
-  }
-  
-  if (bestLine) {
-    // 找到该区块起始行的最近匹配行（语义匹配）；预览块行号 → 源码行，反向去除偏移
-    const matchLine = findBestMatchLine(bestLine) || bestLine;
-    scrollEditorToLine(matchLine - state.syncOffset, true);
-  }
-}
-
-function scrollEditorToLine(lineNum, silent = false) {
+function scrollEditorToLine(lineNum, silent = false, alignY = null) {
   const lines = el.editor.value.split(/\r?\n/);
   let pos = 0;
   
@@ -1660,13 +1689,10 @@ function scrollEditorToLine(lineNum, silent = false) {
     el.editor.focus();
   }
 
-  // 在编辑器中滚动到该行（计入文本域的上内边距，避免定位偏上）
-  const styles = window.getComputedStyle(el.editor);
-  const lineHeight = parseFloat(styles.lineHeight) || 22;
-  const paddingTop = parseFloat(styles.paddingTop) || 0;
-  const cursorLine = lineNum - 1;
-  const scrollTop = Math.max(0, cursorLine * lineHeight + paddingTop - el.editor.clientHeight / 3);
-  el.editor.scrollTop = scrollTop;
+  // 在编辑器中滚动到该行（镜像精确测量该行像素位置，计入软换行与上内边距）
+  // alignY 指定该行在编辑器视口中的目标纵向位置（用于与预览对齐）；缺省滚到 1/3 高度
+  const targetY = alignY == null ? el.editor.clientHeight / 3 : alignY;
+  el.editor.scrollTop = Math.max(0, getEditorLineTop(lineNum) - targetY);
   
   highlightPreviewLine(lineNum);
 }
