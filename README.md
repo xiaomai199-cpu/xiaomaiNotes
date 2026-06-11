@@ -134,7 +134,7 @@ go run . -data ~/MarkNotesData -addr :8080
 
 ## 打包成独立应用
 
-已打包好的 macOS 版可直接下载：[release/MarkNotes-macOS.zip](release/MarkNotes-macOS.zip)（内含 `MarkNotes.app`、命令行版 `marknotes` 和 `停止MarkNotes服务.command`）。应用未签名，首次打开如被拦截请右键 → 打开。
+已打包好的 macOS 版可在 [Releases 页面](https://github.com/xiaomai199-cpu/xiaomaiNotes/releases)直接下载（`MarkNotes-macOS.zip` 内含 `MarkNotes.app`、命令行版 `marknotes` 和 `停止MarkNotes服务.command`）。应用未签名，首次打开如被拦截请右键 → 打开。
 
 模板和静态资源已通过 `go:embed` 嵌入二进制，编译产物是单文件应用，可拷贝到任意位置运行：
 
