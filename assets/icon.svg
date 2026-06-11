@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2d6a4f"/>
+      <stop offset="1" stop-color="#1b4332"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd166"/>
+      <stop offset="1" stop-color="#e9a319"/>
+    </linearGradient>
+    <!-- 单粒麦粒：尖头椭圆叶形，原点在底部尖端 -->
+    <path id="grain" d="M0 0 C -34 -28, -34 -82, 0 -112 C 34 -82, 34 -28, 0 0 Z"/>
+  </defs>
+
+  <!-- macOS 圆角方形底 -->
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
+
+  <!-- 麦芒 -->
+  <g stroke="#f4c95d" stroke-width="10" stroke-linecap="round" opacity="0.9">
+    <line x1="512" y1="318" x2="512" y2="170"/>
+    <line x1="478" y1="330" x2="408" y2="196"/>
+    <line x1="546" y1="330" x2="616" y2="196"/>
+  </g>
+
+  <!-- 麦秆 -->
+  <path d="M512 836 L512 320" stroke="#b07d2b" stroke-width="22" stroke-linecap="round" fill="none"/>
+
+  <!-- 两片叶子 -->
+  <path d="M512 800 C 430 770, 360 700, 352 600 C 450 640, 502 712, 512 780 Z" fill="#74c69d"/>
+  <path d="M512 800 C 594 770, 664 700, 672 600 C 574 640, 522 712, 512 780 Z" fill="#52b788"/>
+
+  <!-- 麦粒：自下而上左右成对，顶部一粒收尾 -->
+  <g fill="url(#gold)" stroke="#c97f10" stroke-width="6">
+    <use href="#grain" transform="translate(496,668) rotate(38)"/>
+    <use href="#grain" transform="translate(528,668) rotate(-38)"/>
+    <use href="#grain" transform="translate(496,584) rotate(38)"/>
+    <use href="#grain" transform="translate(528,584) rotate(-38)"/>
+    <use href="#grain" transform="translate(496,500) rotate(38)"/>
+    <use href="#grain" transform="translate(528,500) rotate(-38)"/>
+    <use href="#grain" transform="translate(496,416) rotate(38)"/>
+    <use href="#grain" transform="translate(528,416) rotate(-38)"/>
+    <use href="#grain" transform="translate(512,330) rotate(0)"/>
+  </g>
+</svg>

@@ -5,18 +5,22 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"html/template"
 	"io"
+	"io/fs"
 	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -29,14 +33,21 @@ import (
 )
 
 const (
-	addr       = ":44444"
-	dataRoot   = "data"
-	defaultCat = "default"
-	trashCat   = "回收站"
-	trashMeta  = ".trash.json"
-	orderFile  = ".category_order.json"
-	usersFile  = "users.json"
+	defaultAddr = ":44444"
+	defaultCat  = "default"
+	trashCat    = "回收站"
+	trashMeta   = ".trash.json"
+	orderFile   = ".category_order.json"
 )
+
+// 数据存放目录（启动时由 -data 参数 / MARKNOTES_DATA 环境变量决定）
+var (
+	dataRoot  string // 各用户笔记数据：<数据目录>/data/<用户名>
+	usersFile string // 用户账号文件：<数据目录>/users.json
+)
+
+//go:embed templates static
+var embeddedFS embed.FS
 
 type contextKey string
 
@@ -283,19 +294,48 @@ func notePath(dataDir, category, name string) string {
 	return filepath.Join(notesDir(dataDir, category), filepath.Base(name))
 }
 
+// defaultDataDir 返回未指定 -data / MARKNOTES_DATA 时的默认数据目录：
+// macOS 上为 iCloud 云盘的「科研笔记--麦子」文件夹（随 iCloud 自动同步），其他系统为当前目录。
+func defaultDataDir() string {
+	if runtime.GOOS == "darwin" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, "Library", "Mobile Documents", "com~apple~CloudDocs", "科研笔记--麦子")
+		}
+	}
+	return "."
+}
+
 // ── main / routes ─────────────────────────────────────────────────────────────
 
 func main() {
+	defaultData := os.Getenv("MARKNOTES_DATA")
+	if defaultData == "" {
+		defaultData = defaultDataDir()
+	}
+	dataFlag := flag.String("data", defaultData, "数据存放目录（其中保存 users.json 与 data/ 笔记数据）")
+	addrFlag := flag.String("addr", envDefault("MARKNOTES_ADDR", defaultAddr), "监听地址，如 :44444")
+	flag.Parse()
+
+	root, err := filepath.Abs(*dataFlag)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.MkdirAll(root, 0755); err != nil {
+		log.Fatal(err)
+	}
+	dataRoot = filepath.Join(root, "data")
+	usersFile = filepath.Join(root, "users.json")
+	addr := *addrFlag
+
 	basePath = normalizeBasePath(os.Getenv("BASE_PATH"))
 	a := &app{
 		basePath: basePath,
 		version:  time.Now().Format("20060102150405"),
 	}
 
-	var err error
 	tmpl, err = template.New("").Funcs(template.FuncMap{
 		"not_self": func(currentUser, rowUser string) bool { return currentUser != rowUser },
-	}).ParseGlob("templates/*.html")
+	}).ParseFS(embeddedFS, "templates/*.html")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -316,12 +356,17 @@ func main() {
 		mux.Handle(a.basePath+"/", http.StripPrefix(a.basePath, submux))
 	}
 
+	log.Printf("Data directory: %s", root)
 	log.Printf("Research notes running at http://localhost%s%s", addr, a.withBase("/"))
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
 func (a *app) registerRoutes(mux *http.ServeMux) {
-	staticFiles := http.StripPrefix("/static/", http.FileServer(http.Dir("static")))
+	staticFS, err := fs.Sub(embeddedFS, "static")
+	if err != nil {
+		log.Fatal(err)
+	}
+	staticFiles := http.StripPrefix("/static/", http.FileServer(http.FS(staticFS)))
 	mux.Handle("/static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		staticFiles.ServeHTTP(w, r)

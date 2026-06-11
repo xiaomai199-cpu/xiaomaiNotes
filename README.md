@@ -115,6 +115,46 @@ go run .
 http://localhost:44444
 ```
 
+### 启动参数
+
+| 参数 | 对应环境变量 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `-data` | `MARKNOTES_DATA` | macOS：iCloud 云盘 `科研笔记--麦子`；其他系统：`.` | 数据存放目录，其中保存 `users.json` 与 `data/` 笔记数据 |
+| `-addr` | `MARKNOTES_ADDR` | `:44444` | 监听地址 |
+
+macOS 上的默认数据目录完整路径为 `~/Library/Mobile Documents/com~apple~CloudDocs/科研笔记--麦子`，存放在其中的笔记会随 iCloud 自动同步。如果想继续使用项目目录下的旧数据，用 `go run . -data .` 启动，或把现有的 `data/` 和 `users.json` 移动到 iCloud 目录中。
+
+例如把数据存放到指定目录并换端口：
+
+```bash
+go run . -data ~/MarkNotesData -addr :8080
+```
+
+目录不存在时会自动创建。命令行参数优先于环境变量。
+
+## 打包成独立应用
+
+模板和静态资源已通过 `go:embed` 嵌入二进制，编译产物是单文件应用，可拷贝到任意位置运行：
+
+```bash
+./build-app.sh
+```
+
+生成：
+
+- `dist/marknotes`：单文件可执行程序，`./marknotes -data <数据目录> [-addr :端口]` 即可运行，无需附带 `templates/`、`static/`
+- `dist/MarkNotes.app`：macOS 双击运行版，启动服务并自动打开浏览器；数据默认存放在 iCloud 云盘的 `科研笔记--麦子` 文件夹（`~/Library/Mobile Documents/com~apple~CloudDocs/科研笔记--麦子`，随 iCloud 自动同步），如需自定义，在 `~/Library/Application Support/MarkNotes` 下创建 `datadir.txt`，第一行写上想用的数据目录绝对路径
+- `dist/停止MarkNotes服务.command`：双击停止后台服务
+
+MarkNotes.app 双击后服务常驻后台（关闭浏览器页面不影响），再次双击会直接打开页面；想彻底停止服务时双击 `停止MarkNotes服务.command` 即可。服务日志在 `~/Library/Application Support/MarkNotes/marknotes.log`。
+
+交叉编译其他平台（例如 Linux 服务器、Windows）：
+
+```bash
+GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o marknotes-linux .
+GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o marknotes.exe .
+```
+
 ## 登录配置与多用户
 
 系统支持多用户，用户信息保存在 `users.json`，密码以 bcrypt 哈希存储。
@@ -637,6 +677,18 @@ ADMIN_PASS='your-strong-password' go run .
 
 ```bash
 BASE_PATH=/MarkNotes go run .
+```
+
+指定数据存放目录启动：
+
+```bash
+go run . -data ~/MarkNotesData
+```
+
+打包单文件应用与 macOS App：
+
+```bash
+./build-app.sh
 ```
 
 后台运行：
