@@ -27,6 +27,7 @@
       <button id="imageManagerBtn" title="管理所有分类的图片">图片管理</button>
       <button id="exportBtn" title="导出当前笔记">导出</button>
       <button id="backupBtn" title="备份全部分类和笔记">备份</button>
+      <button id="donateBtn" title="爱心捐赠">❤️ 捐赠</button>
       <span class="nav-user">{{.Username}}</span>
       <button id="changePasswordBtn" title="修改密码">改密码</button>
       {{if .IsAdmin}}<a href="{{.BasePath}}/admin" title="用户管理">用户管理</a>{{end}}
@@ -113,6 +114,19 @@
     </div>
   </div>
 
+  <div id="donateModal" class="modal" hidden>
+    <div class="modal-card" style="max-width:380px">
+      <div class="modal-head">
+        <strong>爱心捐赠</strong>
+        <button id="closeDonateModal">关闭</button>
+      </div>
+      <div style="padding:1rem;display:flex;flex-direction:column;align-items:center;gap:.75rem">
+        <p style="margin:0;font-size:.9rem">如果 MarkNotes 对你有帮助，欢迎扫码请作者喝杯咖啡 ☕</p>
+        <img id="donateQR" data-src="https://www.nuli199.com/upload/IMG_1516.JPG" alt="爱心捐赠二维码" style="max-width:100%;border-radius:8px">
+      </div>
+    </div>
+  </div>
+
   <input id="importFile" type="file" accept=".md,.markdown,.zip" hidden>
   <div id="imageModal" class="modal" hidden>
     <div class="modal-card">
@@ -161,6 +175,13 @@
       document.getElementById('cpError').textContent = '';
     };
     document.getElementById('closeChangePasswordModal').onclick = () => { modal.hidden = true; };
+    const donateModal = document.getElementById('donateModal');
+    document.getElementById('donateBtn').onclick = () => {
+      const img = document.getElementById('donateQR');
+      if (!img.src) img.src = img.dataset.src; // 首次打开才加载图片
+      donateModal.hidden = false;
+    };
+    document.getElementById('closeDonateModal').onclick = () => { donateModal.hidden = true; };
     document.getElementById('cpSubmitBtn').onclick = async () => {
       const oldPass = document.getElementById('cpOldPass').value;
       const newPass = document.getElementById('cpNewPass').value;
