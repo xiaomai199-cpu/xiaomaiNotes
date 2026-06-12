@@ -136,7 +136,7 @@ go run . -data ~/MarkNotesData -addr :8080
 
 ## 打包成独立应用
 
-已打包好的 macOS 版可在 [Releases 页面](https://github.com/xiaomai199-cpu/xiaomaiNotes/releases)直接下载（`MarkNotes-macOS.zip` 内含 `MarkNotes.app`、命令行版 `marknotes` 和 `停止MarkNotes服务.command`）。应用未签名，首次打开如被拦截请右键 → 打开。
+已打包好的 macOS 版可在 [Releases 页面](https://github.com/xiaomai199-cpu/xiaomaiNotes/releases)直接下载（`MarkNotes-macOS.zip` 内含 `MarkNotes.app`、命令行版 `marknotes` 和 `停止MarkNotes服务.command`）。应用为 ad-hoc 签名（未经 Apple 公证），首次打开如被拦截请右键 → 打开；首次启动时 macOS 会询问是否允许访问 iCloud 云盘，请点「允许」（数据目录在 iCloud 中，拒绝后应用将无法启动，可到「系统设置 → 隐私与安全性 → 文件和文件夹」重新开启）。
 
 模板和静态资源已通过 `go:embed` 嵌入二进制，编译产物是单文件应用，可拷贝到任意位置运行：
 
@@ -149,6 +149,8 @@ go run . -data ~/MarkNotesData -addr :8080
 - `dist/marknotes`：单文件可执行程序，`./marknotes -data <数据目录> [-addr :端口]` 即可运行，无需附带 `templates/`、`static/`；加 `-window` 则以独立窗口模式运行（仅 macOS）
 - `dist/MarkNotes.app`：macOS 独立窗口应用，双击直接打开原生 WebView 窗口（不依赖浏览器）；数据默认存放在 iCloud 云盘的 `科研笔记--麦子` 文件夹（`~/Library/Mobile Documents/com~apple~CloudDocs/科研笔记--麦子`，随 iCloud 自动同步），如需自定义，在 `~/Library/Application Support/MarkNotes` 下创建 `datadir.txt`，第一行写上想用的数据目录绝对路径
 - `dist/停止MarkNotes服务.command`：双击强制停止后台服务（备用）
+
+打包脚本会自动对 `MarkNotes.app` 做 ad-hoc 签名——完全无签名的 app 会被 macOS 15 静默拒绝访问 iCloud 云盘（读取 `users.json` 报 `operation not permitted`，进程直接退出，窗口弹不出来）。
 
 关闭窗口只是隐藏，服务驻留后台，局域网内其他设备（如手机）仍可通过 `http://<电脑IP>:44444/` 访问，点 Dock 图标可重新打开窗口；要彻底退出，用页面右上角的「完全退出」按钮（窗口模式专有，浏览器里也可用）或 Cmd+Q。服务日志在 `~/Library/Application Support/MarkNotes/marknotes.log`。
 
