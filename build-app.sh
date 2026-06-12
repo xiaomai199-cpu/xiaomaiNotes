@@ -85,6 +85,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# 无签名的 app 会被 macOS 15 静默拒绝访问 iCloud 云盘（users.json 读取报
+# operation not permitted，进程直接退出，窗口弹不出来），ad-hoc 签名即可正常弹授权框
+echo "==> ad-hoc 签名 $APP"
+codesign --force --deep -s - "$APP"
+
 echo "==> 完成："
 echo "    $DIST/marknotes        单文件可执行程序（./marknotes -data <数据目录> [-addr :端口]）"
 echo "    $APP    macOS 双击运行，独立窗口应用（数据默认存放在 iCloud 云盘/科研笔记--麦子）"
