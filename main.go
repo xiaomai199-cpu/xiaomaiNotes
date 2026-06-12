@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"log"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -314,6 +315,7 @@ func main() {
 	}
 	dataFlag := flag.String("data", defaultData, "数据存放目录（其中保存 users.json 与 data/ 笔记数据）")
 	addrFlag := flag.String("addr", envDefault("MARKNOTES_ADDR", defaultAddr), "监听地址，如 :44444")
+	windowFlag := flag.Bool("window", false, "以独立窗口应用模式运行（macOS：内嵌原生 WebView 窗口，关闭窗口即退出）")
 	flag.Parse()
 
 	root, err := filepath.Abs(*dataFlag)
@@ -358,7 +360,32 @@ func main() {
 
 	log.Printf("Data directory: %s", root)
 	log.Printf("Research notes running at http://localhost%s%s", addr, a.withBase("/"))
+
+	if *windowFlag {
+		url := localURL(addr, a.withBase("/"))
+		// 端口被占用通常是已有 MarkNotes 实例在运行：直接开窗口连上它即可
+		if ln, err := net.Listen("tcp", addr); err == nil {
+			go func() { log.Fatal(http.Serve(ln, mux)) }()
+		} else {
+			log.Printf("端口已被占用（%v），连接已有实例", err)
+		}
+		runNativeWindow(url)
+		return
+	}
+
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+// localURL 把监听地址转换为本机访问地址，如 ":44444" -> "http://localhost:44444/"
+func localURL(addr, path string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "http://localhost:44444" + path
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port) + path
 }
 
 func (a *app) registerRoutes(mux *http.ServeMux) {

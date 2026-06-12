@@ -2,6 +2,8 @@
 # 打包 MarkNotes：
 #   ./build-app.sh        生成 dist/marknotes 单文件可执行程序 + dist/MarkNotes.app（macOS 双击运行）
 #
+# MarkNotes.app 是独立窗口应用：双击打开原生 WebView 窗口（不依赖浏览器），关闭窗口即退出服务。
+#
 # MarkNotes.app 的数据目录：
 #   默认  iCloud 云盘下的「科研笔记--麦子」（~/Library/Mobile Documents/com~apple~CloudDocs/科研笔记--麦子）
 #   自定义 在 ~/Library/Application Support/MarkNotes 下创建 datadir.txt，第一行写上想用的数据目录绝对路径
@@ -31,9 +33,8 @@ cp "$DIST/marknotes" "$MACOS_DIR/marknotes-server"
 
 cat > "$MACOS_DIR/$APP_NAME" <<'LAUNCHER'
 #!/bin/bash
-# MarkNotes.app 启动器：确定数据目录 -> 后台启动服务 -> 打开浏览器 -> 立即退出。
-# 启动器必须退出，否则 macOS 认为 app 仍在运行，再次双击不会有任何反应。
-# 服务进程脱离启动器常驻后台，下次双击时检测到已在运行则直接打开浏览器。
+# MarkNotes.app 启动器：确定数据目录 -> exec 进入服务进程（-window 独立窗口模式）。
+# exec 保持同一 PID，macOS 把它当作 app 本体：窗口关闭即退出，再次双击则激活已有窗口。
 DIR="$(cd "$(dirname "$0")" && pwd)"
 SUPPORT="$HOME/Library/Application Support/MarkNotes"
 mkdir -p "$SUPPORT"
@@ -45,29 +46,11 @@ if [ -f "$SUPPORT/datadir.txt" ]; then
   [ -n "$CUSTOM" ] && DATA_DIR="$CUSTOM"
 fi
 
-PORT=44444
-URL="http://localhost:$PORT/"
-
-# 已有实例在运行时直接打开浏览器
-if curl -s -o /dev/null --max-time 1 "$URL"; then
-  open "$URL"
-  exit 0
-fi
-
-nohup "$DIR/marknotes-server" -data "$DATA_DIR" -addr ":$PORT" >> "$SUPPORT/marknotes.log" 2>&1 &
-echo $! > "$SUPPORT/marknotes.pid"
-disown
-
-for _ in $(seq 1 20); do
-  curl -s -o /dev/null --max-time 1 "$URL" && break
-  sleep 0.3
-done
-open "$URL"
-exit 0
+exec "$DIR/marknotes-server" -data "$DATA_DIR" -addr ":44444" -window >> "$SUPPORT/marknotes.log" 2>&1
 LAUNCHER
 chmod +x "$MACOS_DIR/$APP_NAME" "$MACOS_DIR/marknotes-server"
 
-# 双击停止后台服务的小工具
+# 双击停止后台服务的小工具（窗口模式关窗即退出，此工具用于清理旧版残留的后台服务）
 cat > "$DIST/停止MarkNotes服务.command" <<'STOP'
 #!/bin/bash
 SUPPORT="$HOME/Library/Application Support/MarkNotes"
@@ -92,12 +75,16 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>$APP_NAME</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key><true/>
+  </dict>
 </dict>
 </plist>
 PLIST
 
 echo "==> 完成："
 echo "    $DIST/marknotes        单文件可执行程序（./marknotes -data <数据目录> [-addr :端口]）"
-echo "    $APP    macOS 双击运行（数据默认存放在 iCloud 云盘/科研笔记--麦子）"
-echo "    $DIST/停止MarkNotes服务.command    双击停止后台服务"
+echo "    $APP    macOS 双击运行，独立窗口应用（数据默认存放在 iCloud 云盘/科研笔记--麦子）"
+echo "    $DIST/停止MarkNotes服务.command    双击清理旧版残留的后台服务"
