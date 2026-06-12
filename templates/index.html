@@ -32,6 +32,7 @@
       <button id="changePasswordBtn" title="修改密码">改密码</button>
       {{if .IsAdmin}}<a href="{{.BasePath}}/admin" title="用户管理">用户管理</a>{{end}}
       <a href="{{.BasePath}}/logout">退出</a>
+      {{if .WindowMode}}<button id="quitAppBtn" title="退出 MarkNotes 并停止后台服务">完全退出</button>{{end}}
     </nav>
   </header>
 
@@ -182,6 +183,12 @@
       donateModal.hidden = false;
     };
     document.getElementById('closeDonateModal').onclick = () => { donateModal.hidden = true; };
+    const quitBtn = document.getElementById('quitAppBtn'); // 仅窗口模式渲染
+    if (quitBtn) quitBtn.onclick = async () => {
+      if (!confirm('确定完全退出 MarkNotes？窗口和后台服务都会停止。')) return;
+      try { await fetch(window.APP_BASE_PATH + '/api/shutdown', {method: 'POST'}); } catch (e) {}
+      document.body.innerHTML = '<p style="padding:2rem">MarkNotes 已退出，可关闭此页面。</p>';
+    };
     document.getElementById('cpSubmitBtn').onclick = async () => {
       const oldPass = document.getElementById('cpOldPass').value;
       const newPass = document.getElementById('cpNewPass').value;

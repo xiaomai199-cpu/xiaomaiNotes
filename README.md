@@ -145,10 +145,10 @@ go run . -data ~/MarkNotesData -addr :8080
 生成：
 
 - `dist/marknotes`：单文件可执行程序，`./marknotes -data <数据目录> [-addr :端口]` 即可运行，无需附带 `templates/`、`static/`；加 `-window` 则以独立窗口模式运行（仅 macOS）
-- `dist/MarkNotes.app`：macOS 独立窗口应用，双击直接打开原生 WebView 窗口（不依赖浏览器），关闭窗口即退出服务；数据默认存放在 iCloud 云盘的 `科研笔记--麦子` 文件夹（`~/Library/Mobile Documents/com~apple~CloudDocs/科研笔记--麦子`，随 iCloud 自动同步），如需自定义，在 `~/Library/Application Support/MarkNotes` 下创建 `datadir.txt`，第一行写上想用的数据目录绝对路径
-- `dist/停止MarkNotes服务.command`：双击清理旧版残留的后台服务（窗口版关窗即退出，一般用不到）
+- `dist/MarkNotes.app`：macOS 独立窗口应用，双击直接打开原生 WebView 窗口（不依赖浏览器）；数据默认存放在 iCloud 云盘的 `科研笔记--麦子` 文件夹（`~/Library/Mobile Documents/com~apple~CloudDocs/科研笔记--麦子`，随 iCloud 自动同步），如需自定义，在 `~/Library/Application Support/MarkNotes` 下创建 `datadir.txt`，第一行写上想用的数据目录绝对路径
+- `dist/停止MarkNotes服务.command`：双击强制停止后台服务（备用）
 
-窗口打开期间服务同时监听 `:44444`，局域网内其他设备（如手机）仍可通过 `http://<电脑IP>:44444/` 访问。服务日志在 `~/Library/Application Support/MarkNotes/marknotes.log`。
+关闭窗口只是隐藏，服务驻留后台，局域网内其他设备（如手机）仍可通过 `http://<电脑IP>:44444/` 访问，点 Dock 图标可重新打开窗口；要彻底退出，用页面右上角的「完全退出」按钮（窗口模式专有，浏览器里也可用）或 Cmd+Q。服务日志在 `~/Library/Application Support/MarkNotes/marknotes.log`。
 
 交叉编译其他平台（例如 Linux 服务器、Windows）：
 

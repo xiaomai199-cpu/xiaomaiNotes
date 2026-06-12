@@ -79,16 +79,18 @@ type User struct {
 }
 
 type app struct {
-	basePath string
-	version  string
+	basePath   string
+	version    string
+	windowMode bool
 }
 
 type templateData struct {
-	Username string
-	IsAdmin  bool
-	Error    string
-	BasePath string
-	Version  string
+	Username   string
+	IsAdmin    bool
+	Error      string
+	BasePath   string
+	Version    string
+	WindowMode bool
 }
 
 type categoryInfo struct {
@@ -331,8 +333,9 @@ func main() {
 
 	basePath = normalizeBasePath(os.Getenv("BASE_PATH"))
 	a := &app{
-		basePath: basePath,
-		version:  time.Now().Format("20060102150405"),
+		basePath:   basePath,
+		version:    time.Now().Format("20060102150405"),
+		windowMode: *windowFlag,
 	}
 
 	tmpl, err = template.New("").Funcs(template.FuncMap{
@@ -430,6 +433,7 @@ func (a *app) registerRoutes(mux *http.ServeMux) {
 	}))
 
 	// user self-service
+	mux.HandleFunc("/api/shutdown", a.requireAuth(a.shutdown))
 	mux.HandleFunc("/api/user/password", a.requireAuth(a.changePassword))
 	mux.HandleFunc("/api/user/sync-offset", a.requireAuth(a.userSyncOffset))
 
@@ -525,11 +529,30 @@ func (a *app) index(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	u, _ := findUser(user)
 	_ = tmpl.ExecuteTemplate(w, "index.html", templateData{
-		Username: user,
-		IsAdmin:  u.IsAdmin,
-		BasePath: a.basePath,
-		Version:  a.version,
+		Username:   user,
+		IsAdmin:    u.IsAdmin,
+		BasePath:   a.basePath,
+		Version:    a.version,
+		WindowMode: a.windowMode,
 	})
+}
+
+// shutdown 完全退出：仅独立窗口模式开放，响应写回后延迟结束进程（窗口与服务一并退出）。
+func (a *app) shutdown(w http.ResponseWriter, r *http.Request) {
+	if !a.windowMode {
+		http.Error(w, "仅独立窗口模式支持完全退出", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	log.Printf("收到完全退出请求（用户 %s），服务即将退出", currentUser(r))
+	w.Write([]byte("ok"))
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		os.Exit(0)
+	}()
 }
 
 func (a *app) adminPage(w http.ResponseWriter, r *http.Request) {
